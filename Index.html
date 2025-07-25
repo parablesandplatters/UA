@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+  
+  <meta charset="UTF-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>United Airlines Call Tracker</title>
+  
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;500;700&display=swap" rel="stylesheet">
+  
+  <style>
+    
+    :root {
+      --bg: #f0f4f8;
+      --fg: #1a1a1a;
+      --primary: #005daa;
+      --card: #ffffff;
+      --accent: #dceeff;
+    }
+
+    [data-theme="dark"] {
+      --bg: #121212;
+      --fg: #ffffff;
+      --primary: #33aaff;
+      --card: #1e1e1e;
+      --accent: #003366;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      margin: 0;
+      padding: 1rem;
+    }
+
+    h1 {
+      text-align: center;
+      color: var(--primary);
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: auto;
+    }
+
+    .toggle-theme {
+      float: right;
+      margin-bottom: 1rem;
+    }
+
+    label {
+      display: block;
+      margin-top: 0.5rem;
+      font-weight: 500;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      padding: 0.5rem;
+      margin-bottom: 1rem;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+    }
+
+    button {
+      background-color: var(--primary);
+      color: white;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-top: 1rem;
+    }
+
+    .log {
+      background-color: var(--card);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-top: 1rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 1rem;
+    }
+
+    canvas {
+      max-width: 100%;
+      margin-top: 2rem;
+    }
+  </style>
+  
+</head>
+
+<body>
+  
+  <div class="container">
+    
+    <button class="toggle-theme" onclick="toggleTheme()">Toggle Light/Dark Mode</button>
+    
+    <h1>United Airlines - Call Tracker</h1>
+
+    <form id="callForm">
+      <label>Date</label>
+      <input type="date" id="date" required>
+
+      <label>AHT</label>
+      <div class="grid">
+        <input type="number" id="ahtHrs" placeholder="Hours" min="0">
+        <input type="number" id="ahtMin" placeholder="Minutes" min="0" max="59">
+        <input type="number" id="ahtSec" placeholder="Seconds" min="0" max="59">
+      </div>
+
+      <label>Hold Time</label>
+      <div class="grid">
+        <input type="number" id="holdHrs" placeholder="Hours" min="0">
+        <input type="number" id="holdMin" placeholder="Minutes" min="0" max="59">
+        <input type="number" id="holdSec" placeholder="Seconds" min="0" max="59">
+      </div>
+
+      <label>Query Topic</label>
+      <input type="text" id="query" required>
+
+      <label>Resolution</label>
+      <textarea id="resolution"></textarea>
+
+      <label>Did you pass this call?</label>
+      <select id="pass">
+        <option value="yes">Yes</option>
+        <option value="no">No</option>
+      </select>
+
+      <label>Comments/Notes</label>
+      <textarea id="comments"></textarea>
+
+      <button type="submit">Log Call</button>
+    </form>
+
+    <label>Search by Query</label>
+    <input type="text" id="searchQuery">
+
+    <label>Filter by Date</label>
+    <input type="date" id="filterDate">
+
+    <div id="logs"></div>
+
+    <div>
+      <h2>Weekly & Monthly Metrics</h2>
+      <canvas id="weeklyChart"></canvas>
+      <canvas id="monthlyChart"></canvas>
+      <p id="averages"></p>
+    </div>
+  </div>
+
+  <script>
+    
+    const form = document.getElementById('callForm');
+    const logsDiv = document.getElementById('logs');
+    const searchInput = document.getElementById('searchQuery');
+    const filterDate = document.getElementById('filterDate');
+    const avgOutput = document.getElementById('averages');
+    let chartWeekly, chartMonthly;
+
+    const toggleTheme = () => {
+      document.documentElement.dataset.theme =
+        document.documentElement.dataset.theme === 'dark' ? '' : 'dark';
+    };
+
+    const getTimeInSeconds = (h, m, s) => Number(h) * 3600 + Number(m) * 60 + Number(s);
+
+    const getCalls = () => JSON.parse(localStorage.getItem('calls') || '[]');
+
+    const saveCalls = (calls) => localStorage.setItem('calls', JSON.stringify(calls));
+
+    const formatTime = (seconds) => {
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      const s = seconds % 60;
+      return `${h}h ${m}m ${s}s`;
+    };
+
+    const updateCharts = (calls) => {
+      const weekly = {}, monthly = {};
+      let total = 0;
+
+      calls.forEach(call => {
+        const date = new Date(call.date);
+        const week = `${date.getFullYear()}-W${String(getWeek(date)).padStart(2, '0')}`;
+        const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+
+        if (!weekly[week]) weekly[week] = 0;
+        if (!monthly[month]) monthly[month] = 0;
+
+        weekly[week] += call.total;
+        monthly[month] += call.total;
+
+        total += call.total;
+      });
+
+      const avgWeek = Object.values(weekly).length ? total / Object.values(weekly).length : 0;
+      const avgMonth = Object.values(monthly).length ? total / Object.values(monthly).length : 0;
+
+      avgOutput.innerText = `Avg/Week: ${formatTime(Math.round(avgWeek))} | Avg/Month: ${formatTime(Math.round(avgMonth))}`;
+
+      renderChart('weeklyChart', 'Weekly Total Time', weekly);
+      renderChart('monthlyChart', 'Monthly Total Time', monthly);
+    };
+
+    const getWeek = (d) => {
+      const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+      const dayNum = date.getUTCDay() || 7;
+      date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+      const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+      return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+    };
+
+    const renderChart = (id, label, data) => {
+      const ctx = document.getElementById(id);
+      if (window[`chart_${id}`]) window[`chart_${id}`].destroy();
+      window[`chart_${id}`] = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: Object.keys(data),
+          datasets: [{
+            label,
+            data: Object.values(data),
+            backgroundColor: '#005daa'
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { beginAtZero: true }
+          }
+        }
+      });
+    };
+
+    const renderLogs = () => {
+      const query = searchInput.value.toLowerCase();
+      const dateFilter = filterDate.value;
+      const calls = getCalls().filter(c =>
+        (!query || c.query.toLowerCase().includes(query)) &&
+        (!dateFilter || c.date === dateFilter)
+      );
+
+      logsDiv.innerHTML = '';
+      calls.forEach(c => {
+        const el = document.createElement('div');
+        el.className = 'log';
+        el.innerHTML = `
+          <strong>Date:</strong> ${c.date}<br>
+          <strong>Query:</strong> ${c.query}<br>
+          <strong>AHT:</strong> ${formatTime(c.aht)}<br>
+          <strong>Hold:</strong> ${formatTime(c.hold)}<br>
+          <strong>Total:</strong> ${formatTime(c.total)}<br>
+          <strong>Resolution:</strong> ${c.resolution}<br>
+          <strong>Passed:</strong> ${c.pass}<br>
+          <strong>Comments:</strong> ${c.comments || '—'}
+        `;
+        logsDiv.appendChild(el);
+      });
+
+      updateCharts(calls);
+    };
+
+    form.onsubmit = e => {
+      e.preventDefault();
+      const aht = getTimeInSeconds(ahtHrs.value, ahtMin.value, ahtSec.value);
+      const hold = getTimeInSeconds(holdHrs.value, holdMin.value, holdSec.value);
+      const total = aht + hold;
+      const calls = getCalls();
+
+      calls.push({
+        date: date.value,
+        query: query.value,
+        resolution: resolution.value,
+        pass: pass.value,
+        comments: comments.value,
+        aht,
+        hold,
+        total
+      });
+
+      saveCalls(calls);
+      form.reset();
+      renderLogs();
+    };
+
+    searchInput.oninput = renderLogs;
+    filterDate.onchange = renderLogs;
+    window.onload = renderLogs;
+  </script>
+  
+</body>
+
+</html>
+
+
+
+
